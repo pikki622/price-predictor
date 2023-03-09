@@ -27,7 +27,7 @@ def yahoo_finance_csv(code : str,
     opener = urllib.request.build_opener()
     opener.addheaders = [('User-Agent','Mozilla/5.0')]
     urllib.request.install_opener(opener)
-    
+
     #converting dates from iso format
     start_from_date = datetime.datetime.fromisoformat(start_from_date)
     end_to_date = datetime.datetime.fromisoformat(end_to_date)
@@ -37,13 +37,11 @@ def yahoo_finance_csv(code : str,
     todays_code = int(time.mktime(end_to_date.timetuple()))
 
     url = f'https://query1.finance.yahoo.com/v7/finance/download/{code}?period1={start_from_code}&period2={todays_code}&interval=1{interval}&events=history&includeAdjustedClose=true'
-    
+
     #Save as a temporary file and return the a (position, HTTP message)
     save_to_path = urllib.request.urlretrieve(url)
-    
-    pos_saved_csv = save_to_path[0]
 
-    return pos_saved_csv
+    return save_to_path[0]
 
 def quick_tomorrow(code : str, 
                    plot : bool = True,
@@ -54,40 +52,40 @@ def quick_tomorrow(code : str,
                    n_layers : Optional[int] = None,
                    n_epochs : Optional[int] = None) -> tuple:
 
-      if start_from_date is None:
-          start_from_date = '2010-07-01'
-      if target_value is None:
-          target_value = 'Open'
-      if time_stamps is None:
-          time_stamps = 30
-      if training_to_test_ratio is None:
-          training_to_test_ratio = 0.9
-      if n_layers is None:
-          n_layers = 4
-      if n_epochs is None:
-          n_epochs = 10
+    if start_from_date is None:
+        start_from_date = '2010-07-01'
+    if target_value is None:
+        target_value = 'Open'
+    if time_stamps is None:
+        time_stamps = 30
+    if training_to_test_ratio is None:
+        training_to_test_ratio = 0.9
+    if n_layers is None:
+        n_layers = 4
+    if n_epochs is None:
+        n_epochs = 10
 
-      fitted_model = Price_Predictor(code = code, start_from_date = start_from_date,
-                                     time_stamps = time_stamps, target_value = target_value,
-                                     training_to_test_ratio = training_to_test_ratio, 
-                                     n_layers = n_layers,
-                                     n_epochs = n_epochs, 
-                                     fit_at_start = True, verbose = 1)
+    fitted_model = Price_Predictor(code = code, start_from_date = start_from_date,
+                                   time_stamps = time_stamps, target_value = target_value,
+                                   training_to_test_ratio = training_to_test_ratio, 
+                                   n_layers = n_layers,
+                                   n_epochs = n_epochs, 
+                                   fit_at_start = True, verbose = 1)
 
-      if plot == True:
-          fig, ax = plt.subplots(1, 2, figsize=(18,5))
-          fitted_model.plot_data(ax[0])
-          fitted_model.plot_results(ax[1])
-          plt.legend()
-          plt.show()
+    if plot:
+        fig, ax = plt.subplots(1, 2, figsize=(18,5))
+        fitted_model.plot_data(ax[0])
+        fitted_model.plot_results(ax[1])
+        plt.legend()
+        plt.show()
 
-      tomorrows_value = fitted_model.predict(return_info = False)
+    tomorrows_value = fitted_model.predict(return_info = False)
 
-      print("Last price was {price:.2f} on {date}".format(price = fitted_model.df[fitted_model.target_value].values[-1],
-                                                          date = fitted_model.df['Date'].values[-1]),
-            "Next price is predicted to be {:2f}".format(tomorrows_value), sep='\n')
-      
-      return fitted_model, tomorrows_value
+    print("Last price was {price:.2f} on {date}".format(price = fitted_model.df[fitted_model.target_value].values[-1],
+                                                        date = fitted_model.df['Date'].values[-1]),
+          "Next price is predicted to be {:2f}".format(tomorrows_value), sep='\n')
+
+    return fitted_model, tomorrows_value
 
 class Price_Predictor():
 
@@ -112,14 +110,14 @@ class Price_Predictor():
         self.interval = interval
         self.time_stamps = time_stamps
         self.training_to_test_ratio = training_to_test_ratio
-        
+
         if target_value not in ['Open', 'High', 'Low', 'Close', 'Adj Close', 'Volume']:
             target_value = 'Open'
-            
+
         self.target_value = target_value
         self.n_layers = max(2, n_layers) #it's useless if less than 2
         self.n_epochs = n_epochs
-        self.verbose = 0 if verbose < 0 else 2 if verbose > 2 else verbose
+        self.verbose = 0 if verbose < 0 else min(verbose, 2)
         self.load_model = load_model
         self.path_load = path_load
 
@@ -127,11 +125,11 @@ class Price_Predictor():
         self.df = pd.read_csv(yahoo_finance_csv(code = code, 
                                                 start_from_date = self.start_from_date,
                                                 end_to_date = self.end_to_date))
-        
+
         if self.target_value == 'Volume' and self.df['Volume'].sum() == 0:
             print('Volume data is not available')
             self.target_value = 'Open'
-            
+
         self.df = self.df.dropna().reset_index(drop=True)
 
         #set the scaler
@@ -146,7 +144,7 @@ class Price_Predictor():
 
         #initialize the model
         self.model = self.model_initialize(self.n_layers)
-        if fit_at_start == True:
+        if fit_at_start:
             self.test_predictions = self.fit_and_test(days_forward, self.df, self.split_val)
 
 
@@ -166,17 +164,14 @@ class Price_Predictor():
             model.add(LSTM(units = 50, return_sequences = True, input_shape = (self.time_stamps, 1)))
             model.add(Dropout(0.2))
             for i in range(n_layers):
-                if i < n_layers-1:
-                    return_sequences = True
-                else:
-                    return_sequences = False
+                return_sequences = i < n_layers-1
                 model.add(LSTM(units = 50, return_sequences = return_sequences))
                 model.add(Dropout(0.2))
             #adding the output dense layer
             model.add(Dense(units = 1))
             #cmpiling the model with adam and mse
             model.compile(optimizer = optimizer, loss = loss_metric)
-        
+
         return model
 
     def fit_and_test(self, days_forward : int = 1,
@@ -213,15 +208,16 @@ class Price_Predictor():
         to_test = to_test.reshape(-1,1)
         to_test = self.scale.transform(to_test)
 
-        X_test = []
-        for i in range(self.time_stamps, len(test_set)+self.time_stamps):
-            X_test.append(to_test[i-self.time_stamps:i, 0])
+        X_test = [
+            to_test[i - self.time_stamps : i, 0]
+            for i in range(self.time_stamps, len(test_set) + self.time_stamps)
+        ]
         X_test = np.array(X_test)
         X_test = np.reshape(X_test, (X_test.shape[0], X_test.shape[1], 1))
 
         #rescaling the data
         y_pred = self.model.predict(X_test)
-        
+
         self.test_predictions = self.scale.inverse_transform(y_pred)
 
         return self.test_predictions
@@ -229,17 +225,16 @@ class Price_Predictor():
     def save_model(self, dir : str = 'model_saved'):
         if os.path.isdir(dir):
             response = 0
-            while str(response).lower() != 'y' and str(response).lower() != 'n':
+            while str(response).lower() not in ['y', 'n']:
                 response = input('A model already exists, overwrite? y/n: ')
                 if str(response).lower() == 'y':
                     self.model.save(dir)
                 elif str(response).lower() == 'n':
                     rename = input('Rename? y/n: ')
-                    if str(rename).lower() == 'y':
-                        dir = input('Write a dir name: ')
-                        self.model.save(dir)
-                    else:
+                    if str(rename).lower() != 'y':
                         break
+                    dir = input('Write a dir name: ')
+                    self.model.save(dir)
         else:
             self.model.save(dir)
 
@@ -358,13 +353,12 @@ class Predict_Iterator(Price_Predictor):
         if predict_from_date is not None:
             end_date = datetime.datetime.fromisoformat(self.end_to_date)
             start_date = datetime.datetime.fromisoformat(predict_from_date)
-            
-            if end_date > start_date:
-                position = self.df['Date'].tolist().index(predict_from_date)
-                input_sequence = self.df[self.target_value].values[position-self.time_stamps:position]
 
-            else:
+            if end_date <= start_date:
                 raise ValueError("The chosen 'predict_from_date' must be antecedent to the end date selected previously!")
+            position = self.df['Date'].tolist().index(predict_from_date)
+            input_sequence = self.df[self.target_value].values[position-self.time_stamps:position]
+
         else:
             input_sequence = self.df[self.target_value].values
 
@@ -377,7 +371,7 @@ class Predict_Iterator(Price_Predictor):
             self.stored_models.append(self)
             price_predicted = self.predict(input_sequence = input_sequence, return_info = False)
             predictions.append(price_predicted)
-        
+
         return predictions
 
 
